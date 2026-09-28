@@ -20,9 +20,13 @@ jobs:
   build:
     name: ESP32-C6 Native OTBR
     runs-on: ubuntu-24.04
-
+    
     container:
       image: espressif/idf:v5.5.4
+
+    defaults:
+      run:
+        shell: bash
 
     env:
       PROJECT_DIR: ${{ github.workspace }}/ot_br
