@@ -1,0 +1,280 @@
+```yaml
+name: Build ESP32-C6 Native Thread Border Router
+
+on:
+  push:
+    branches:
+      - main
+      - master
+
+  pull_request:
+    branches:
+      - main
+      - master
+
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: ESP32-C6 Native OTBR
+    runs-on: ubuntu-latest
+
+    container:
+      image: espressif/idf:v5.5.4
+
+    env:
+      IDF_EXAMPLE: /opt/esp/idf/examples/openthread/ot_br
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Configure Git
+        shell: bash
+        run: |
+          set -euxo pipefail
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Show ESP-IDF version
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          . /opt/esp/idf/export.sh
+
+          idf.py --version
+          python --version
+
+      # ---------------------------------------------------------
+      # ESP-IDF ot_br example
+      # ---------------------------------------------------------
+
+      - name: Prepare ESP32-C6 project
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          cd "$IDF_EXAMPLE"
+
+          # set-target regenerates sdkconfig
+          idf.py set-target esp32c6
+
+      # ---------------------------------------------------------
+      # Native Thread radio
+      # ---------------------------------------------------------
+
+      - name: Configure Native Thread Border Router
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          cd "$IDF_EXAMPLE"
+
+          cat > sdkconfig.defaults <<'EOF'
+          #
+          # ESP32-C6
+          #
+          CONFIG_IDF_TARGET="esp32c6"
+
+          #
+          # Native IEEE 802.15.4 radio
+          #
+          CONFIG_OPENTHREAD_RADIO_NATIVE=y
+
+          #
+          # OpenThread Border Router
+          #
+          CONFIG_OPENTHREAD_ENABLED=y
+          CONFIG_OPENTHREAD_BORDER_ROUTER=y
+          CONFIG_OPENTHREAD_FTD=y
+
+          #
+          # Automatically start Border Router
+          #
+          CONFIG_OPENTHREAD_NETWORK_AUTO_START=y
+
+          #
+          # Wi-Fi + Thread coexistence
+          #
+          CONFIG_ESP_COEX_SW_COEXIST_ENABLE=y
+
+          #
+          # Wi-Fi station
+          #
+          CONFIG_EXAMPLE_CONNECT_WIFI=y
+
+          #
+          # Console over USB Serial/JTAG
+          #
+          CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
+          CONFIG_ESP_CONSOLE_SECONDARY_NONE=y
+
+          #
+          # OpenThread CLI
+          #
+          CONFIG_OPENTHREAD_CLI=y
+          CONFIG_OPENTHREAD_CLI_ESP_EXTENSION=y
+
+          #
+          # IPv6 / Border Router
+          #
+          CONFIG_LWIP_IPV6=y
+          CONFIG_LWIP_IPV6_AUTOCONFIG=y
+          CONFIG_LWIP_IPV6_NUM_ADDRESSES=12
+          CONFIG_LWIP_MULTICAST_PING=y
+          CONFIG_LWIP_NETIF_STATUS_CALLBACK=y
+
+          #
+          # mDNS
+          #
+          CONFIG_MDNS_MAX_SERVICES=16
+          EOF
+
+      # ---------------------------------------------------------
+      # Wi-Fi credentials
+      # ---------------------------------------------------------
+
+      - name: Configure Wi-Fi credentials
+        shell: bash
+        env:
+          WIFI_SSID: ${{ secrets.WIFI_SSID }}
+          WIFI_PASSWORD: ${{ secrets.WIFI_PASSWORD }}
+        run: |
+          set -euxo pipefail
+
+          cd "$IDF_EXAMPLE"
+
+          if [ -z "${WIFI_SSID:-}" ]; then
+            echo "ERROR: GitHub secret WIFI_SSID is not configured."
+            exit 1
+          fi
+
+          if [ -z "${WIFI_PASSWORD:-}" ]; then
+            echo "ERROR: GitHub secret WIFI_PASSWORD is not configured."
+            exit 1
+          fi
+
+          python3 - <<'PY'
+          import os
+
+          ssid = os.environ["WIFI_SSID"]
+          password = os.environ["WIFI_PASSWORD"]
+
+          with open("sdkconfig.defaults", "a") as f:
+              f.write(f'\nCONFIG_EXAMPLE_WIFI_SSID="{ssid}"\n')
+              f.write(f'CONFIG_EXAMPLE_WIFI_PASSWORD="{password}"\n')
+          PY
+
+      # ---------------------------------------------------------
+      # Build
+      # ---------------------------------------------------------
+
+      - name: Build firmware
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          . /opt/esp/idf/export.sh
+
+          cd "$IDF_EXAMPLE"
+
+          rm -rf build sdkconfig
+
+          idf.py set-target esp32c6
+          idf.py reconfigure
+          idf.py build
+
+      # ---------------------------------------------------------
+      # Verify
+      # ---------------------------------------------------------
+
+      - name: Verify firmware
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          cd "$IDF_EXAMPLE"
+
+          echo "=== Build output ==="
+          find build -maxdepth 3 -type f -name "*.bin" -print
+
+          echo
+          echo "=== Firmware ==="
+
+          test -f build/bootloader/bootloader.bin
+          test -f build/partition_table/partition-table.bin
+          test -f build/ot_br.bin
+
+          ls -lh \
+            build/ot_br.bin \
+            build/bootloader/bootloader.bin \
+            build/partition_table/partition-table.bin
+
+      # ---------------------------------------------------------
+      # Merge into one flashable binary
+      # ---------------------------------------------------------
+
+      - name: Merge firmware
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          . /opt/esp/idf/export.sh
+
+          cd "$IDF_EXAMPLE/build"
+
+          esptool.py \
+            --chip esp32c6 \
+            merge_bin \
+            -o esp32c6-native-otbr-merged.bin \
+            @flash_args
+
+      # ---------------------------------------------------------
+      # Print flash information
+      # ---------------------------------------------------------
+
+      - name: Show flash information
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          cd "$IDF_EXAMPLE/build"
+
+          echo "=========================================="
+          echo "ESP32-C6 Native Thread Border Router"
+          echo "=========================================="
+
+          echo
+          echo "Flash arguments:"
+          cat flash_args
+
+          echo
+          echo "Firmware:"
+          ls -lh \
+            esp32c6-native-otbr-merged.bin \
+            ot_br.bin \
+            bootloader/bootloader.bin \
+            partition_table/partition-table.bin
+
+      # ---------------------------------------------------------
+      # Upload artifacts
+      # ---------------------------------------------------------
+
+      - name: Upload firmware
+        uses: actions/upload-artifact@v4
+        with:
+          name: esp32c6-native-otbr
+          if-no-files-found: error
+          retention-days: 30
+          path: |
+            /opt/esp/idf/examples/openthread/ot_br/build/esp32c6-native-otbr-merged.bin
+            /opt/esp/idf/examples/openthread/ot_br/build/ot_br.bin
+            /opt/esp/idf/examples/openthread/ot_br/build/bootloader/bootloader.bin
+            /opt/esp/idf/examples/openthread/ot_br/build/partition_table/partition-table.bin
+            /opt/esp/idf/examples/openthread/ot_br/build/flash_args
+```
