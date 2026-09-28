@@ -25,9 +25,24 @@ jobs:
           # 1. Исправление прав доступа Git в Docker
           git config --global --add safe.directory '*'
 
-          # 2. Удаление битых путей override_path из манифестов ESP-IDF и проекта
-          find /opt/esp/idf -name "idf_component.yml" -exec sed -i '/override_path/d' {} +
-          find . -name "idf_component.yml" -exec sed -i '/override_path/d' {} +
+          # 2. Удаление файлов idf_component.yml из встроенных примеров ESP-IDF
+          find /opt/esp/idf/examples -name "idf_component.yml" -delete
+
+          # 3. Гарантированное удаление строк override_path через Python
+          python3 -c "
+          import os, re
+          for search_dir in ['/opt/esp/idf', '.']:
+              for root, _, files in os.walk(search_dir):
+                  for f in files:
+                      if f == 'idf_component.yml':
+                          p = os.path.join(root, f)
+                          with open(p, 'r') as fp:
+                              txt = fp.read()
+                          if 'override_path' in txt:
+                              txt = re.sub(r'.*override_path:.*?\n', '', txt)
+                              with open(p, 'w') as fp:
+                                  fp.write(txt)
+          "
 
       - name: Configure Super Mini ESP32-C6 Settings
         run: |
