@@ -20,11 +20,20 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Fix Git Permissions & IDF Component Manifests
+        run: |
+          # 1. Исправление прав доступа Git в Docker
+          git config --global --add safe.directory '*'
+
+          # 2. Удаление битых путей override_path из манифестов ESP-IDF и проекта
+          find /opt/esp/idf -name "idf_component.yml" -exec sed -i '/override_path/d' {} +
+          find . -name "idf_component.yml" -exec sed -i '/override_path/d' {} +
+
       - name: Configure Super Mini ESP32-C6 Settings
         run: |
           cd examples/basic_thread_border_router
 
-          # 1. Создаем кастомную таблицу разделов под 4MB Flash
+          # Создаем кастомную таблицу разделов под 4MB Flash
           cat << 'EOF' > partitions.csv
           # Name,   Type, SubType, Offset,  Size, Flags
           nvs,      data, nvs,     0x9000,  0x6000,
@@ -33,11 +42,11 @@ jobs:
           factory,  app,  factory, 0x20000, 0x280000,
           EOF
 
-          # 2. Настраиваем USB CDC, REST API и параметры Wi-Fi
+          # Настройка USB CDC, REST API и Wi-Fi
           cat << 'EOF' > sdkconfig.defaults.esp32c6
           CONFIG_IDF_TARGET="esp32c6"
 
-          # Включение консоли через Native USB CDC (GPIO18/19 Super Mini)
+          # Native USB CDC для платы Super Mini (GPIO18/19)
           CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
           CONFIG_ESP_CONSOLE_SECONDARY_NONE=y
 
@@ -47,12 +56,12 @@ jobs:
           CONFIG_OPENTHREAD_REST_SERVER_PORT=8081
           CONFIG_OPENTHREAD_SRP_SERVER=y
 
-          # Таблица разделов
+          # Настройки разделов
           CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
           CONFIG_PARTITION_TABLE_CUSTOM=y
           CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
 
-          # Учетные данные Wi-Fi из GitHub Secrets (или дефолтные значение)
+          # Учетные данные Wi-Fi
           CONFIG_EXAMPLE_WIFI_SSID="${{ secrets.WIFI_SSID || 'YOUR_WIFI_SSID' }}"
           CONFIG_EXAMPLE_WIFI_PASSWORD="${{ secrets.WIFI_PASSWORD || 'YOUR_WIFI_PASSWORD' }}"
           EOF
@@ -68,7 +77,6 @@ jobs:
         run: |
           . /opt/esp/idf/export.sh
           cd examples/basic_thread_border_router/build
-          # Объединение bootloader, partition table и app в один монолитный бинарник
           esptool.py --chip esp32c6 merge_bin -o esp32c6_otbr_merged_0x0.bin @flash_args
 
       - name: Upload Firmware Artifacts
