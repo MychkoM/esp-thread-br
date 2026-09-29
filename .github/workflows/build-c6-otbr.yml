@@ -135,126 +135,35 @@ jobs:
             exit 1
           fi
 
-          #
-          # Remove any existing generated/default configuration
-          # so this workflow is deterministic.
-          #
           rm -f sdkconfig
 
-          #
-          # Create our complete defaults.
-          #
-          cat > sdkconfig.defaults <<EOF
-          #
-          # =======================================================
-          # ESP32-C6
-          # =======================================================
-          #
+          # Keep the example defaults (custom partition table, mbedTLS ECJPAKE,
+          # OT task sizes, lwIP hooks); only override C6-specific options.
+          sed -i '/CONFIG_OPENTHREAD_RADIO_SPINEL_UART/d' sdkconfig.defaults
 
-          CONFIG_IDF_TARGET="esp32c6"
-
-          #
-          # =======================================================
-          # Flash
-          # Super Mini: 4 MB
-          # =======================================================
-          #
+          cat >> sdkconfig.defaults <<EOF
 
           CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
 
-          #
-          # =======================================================
-          # OpenThread
-          # =======================================================
-          #
-
-          CONFIG_OPENTHREAD_ENABLED=y
-
-          #
-          # Native IEEE 802.15.4 radio
-          #
           CONFIG_OPENTHREAD_RADIO_NATIVE=y
-          CONFIG_OPENTHREAD_RADIO_SPINEL_UART=n
-
-          #
-          # Full Thread Device
-          #
           CONFIG_OPENTHREAD_FTD=y
-
-          #
-          # Thread Border Router
-          #
-          CONFIG_OPENTHREAD_BORDER_ROUTER=y
-
-          #
-          # Automatically create/start the Thread BR
-          #
           CONFIG_OPENTHREAD_NETWORK_AUTO_START=y
-
-          #
-          # =======================================================
-          # ESP32-C6 Wi-Fi + Thread coexistence
-          # =======================================================
-          #
-
-          CONFIG_ESP_COEX_SW_COEXIST_ENABLE=y
-
-          #
-          # =======================================================
-          # Wi-Fi
-          # =======================================================
-          #
-
-          CONFIG_EXAMPLE_CONNECT_WIFI=y
-
-          CONFIG_EXAMPLE_WIFI_SSID="$WIFI_SSID"
-          CONFIG_EXAMPLE_WIFI_PASSWORD="$WIFI_PASSWORD"
-
-          #
-          # WPA2-PSK
-          #
-          CONFIG_EXAMPLE_WIFI_AUTH_WPA2_PSK=y
-
-          #
-          # =======================================================
-          # IPv6
-          # =======================================================
-          #
-
-          CONFIG_LWIP_IPV6_FORWARD=y
-          CONFIG_LWIP_IPV6_NUM_ADDRESSES=12
-
-          CONFIG_LWIP_MULTICAST_PING=y
-          CONFIG_LWIP_NETIF_STATUS_CALLBACK=y
-
-          CONFIG_LWIP_HOOK_IP6_ROUTE_DEFAULT=y
-          CONFIG_LWIP_HOOK_ND6_GET_GW_DEFAULT=y
-          CONFIG_LWIP_HOOK_IP6_INPUT_CUSTOM=y
-          CONFIG_LWIP_HOOK_IP6_SELECT_SRC_ADDR_CUSTOM=y
-
-          #
-          # =======================================================
-          # OpenThread CLI
-          # =======================================================
-          #
-
           CONFIG_OPENTHREAD_CLI=y
           CONFIG_OPENTHREAD_CLI_ESP_EXTENSION=y
 
-          #
-          # =======================================================
-          # USB Serial/JTAG
-          # =======================================================
-          #
+          CONFIG_ESP_COEX_SW_COEXIST_ENABLE=y
+
+          CONFIG_EXAMPLE_CONNECT_WIFI=y
+          CONFIG_EXAMPLE_WIFI_SSID="$WIFI_SSID"
+          CONFIG_EXAMPLE_WIFI_PASSWORD="$WIFI_PASSWORD"
+          CONFIG_EXAMPLE_WIFI_AUTH_WPA2_PSK=y
 
           CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
           CONFIG_ESP_CONSOLE_SECONDARY_NONE=y
-
           EOF
 
-          echo
-          echo "===== sdkconfig.defaults ====="
-          cat sdkconfig.defaults
+          echo "===== sdkconfig.defaults (credentials hidden) ====="
+          grep -v 'WIFI_SSID\|WIFI_PASSWORD' sdkconfig.defaults
 
 
       # =========================================================
