@@ -20,7 +20,7 @@ jobs:
   build:
     name: ESP32-C6 Native OTBR
     runs-on: ubuntu-24.04
-    
+
     container:
       image: espressif/idf:v5.5.4
 
@@ -31,7 +31,17 @@ jobs:
     env:
       PROJECT_DIR: ${{ github.workspace }}/ot_br
 
+      # Wi-Fi credentials must be configured in:
+      # GitHub -> Settings -> Secrets and variables -> Actions
+      WIFI_SSID: ${{ secrets.WIFI_SSID }}
+      WIFI_PASSWORD: ${{ secrets.WIFI_PASSWORD }}
+
     steps:
+
+      # =========================================================
+      # Checkout
+      # =========================================================
+
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
@@ -40,7 +50,13 @@ jobs:
       - name: Configure Git
         run: |
           set -euxo pipefail
+
           git config --global --add safe.directory '*'
+
+
+      # =========================================================
+      # ESP-IDF
+      # =========================================================
 
       - name: Verify ESP-IDF
         run: |
@@ -48,15 +64,25 @@ jobs:
 
           . /opt/esp/idf/export.sh
 
+          echo "========================================"
+          echo "ESP-IDF"
+          echo "========================================"
+
           echo "IDF_PATH=$IDF_PATH"
+
           idf.py --version
           python --version
 
-      # ---------------------------------------------------------
-      # Use the official ESP-IDF ot_br example.
-      # Do NOT build esp-thread-br/examples/basic_thread_border_router.
-      # ---------------------------------------------------------
-      - name: Copy official ESP-IDF ot_br example
+          echo
+          echo "ESP-IDF version:"
+          git -C /opt/esp/idf describe --tags --always || true
+
+
+      # =========================================================
+      # Copy official ESP-IDF OpenThread Border Router example
+      # =========================================================
+
+      - name: Copy official ot_br example
         run: |
           set -euxo pipefail
 
@@ -66,9 +92,20 @@ jobs:
             /opt/esp/idf/examples/openthread/ot_br \
             "$PROJECT_DIR"
 
-      # ---------------------------------------------------------
-      # ESP32-C6
-      # ---------------------------------------------------------
+          echo "Project copied to:"
+          echo "$PROJECT_DIR"
+
+          ls -la "$PROJECT_DIR"
+
+
+      # =========================================================
+      # Set target
+      #
+      # IMPORTANT:
+      # set-target must happen BEFORE creating sdkconfig.defaults.
+      # set-target can reset sdkconfig.
+      # =========================================================
+
       - name: Set ESP32-C6 target
         working-directory: ${{ env.PROJECT_DIR }}
         run: |
@@ -78,56 +115,152 @@ jobs:
 
           idf.py set-target esp32c6
 
-      # ---------------------------------------------------------
-      # Native 802.15.4 radio
-      # ---------------------------------------------------------
-      - name: Configure native C6 radio
+
+      # =========================================================
+      # Configure ESP32-C6 single-chip Thread Border Router
+      # =========================================================
+
+      - name: Configure native C6 OTBR
         working-directory: ${{ env.PROJECT_DIR }}
         run: |
           set -euxo pipefail
 
-          cat >> sdkconfig.defaults <<'EOF'
+          if [ -z "${WIFI_SSID}" ]; then
+            echo "ERROR: WIFI_SSID GitHub Secret is not configured."
+            exit 1
+          fi
+
+          if [ -z "${WIFI_PASSWORD}" ]; then
+            echo "ERROR: WIFI_PASSWORD GitHub Secret is not configured."
+            exit 1
+          fi
 
           #
-          # ESP32-C6 single-chip Border Router
+          # Remove any existing generated/default configuration
+          # so this workflow is deterministic.
+          #
+          rm -f sdkconfig
+
+          #
+          # Create our complete defaults.
+          #
+          cat > sdkconfig.defaults <<EOF
+          #
+          # =======================================================
+          # ESP32-C6
+          # =======================================================
           #
 
           CONFIG_IDF_TARGET="esp32c6"
 
+          #
+          # =======================================================
+          # Flash
+          # Super Mini: 4 MB
+          # =======================================================
+          #
+
+          CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
+
+          #
+          # =======================================================
+          # OpenThread
+          # =======================================================
+          #
+
+          CONFIG_OPENTHREAD_ENABLED=y
+
+          #
           # Native IEEE 802.15.4 radio
+          #
           CONFIG_OPENTHREAD_RADIO_NATIVE=y
           CONFIG_OPENTHREAD_RADIO_SPINEL_UART=n
 
-          # OpenThread Border Router
-          CONFIG_OPENTHREAD_ENABLED=y
-          CONFIG_OPENTHREAD_BORDER_ROUTER=y
+          #
+          # Full Thread Device
+          #
           CONFIG_OPENTHREAD_FTD=y
 
-          # Wi-Fi + Thread coexistence
+          #
+          # Thread Border Router
+          #
+          CONFIG_OPENTHREAD_BORDER_ROUTER=y
+
+          #
+          # Automatically create/start the Thread BR
+          #
+          CONFIG_OPENTHREAD_NETWORK_AUTO_START=y
+
+          #
+          # =======================================================
+          # ESP32-C6 Wi-Fi + Thread coexistence
+          # =======================================================
+          #
+
           CONFIG_ESP_COEX_SW_COEXIST_ENABLE=y
 
+          #
+          # =======================================================
+          # Wi-Fi
+          # =======================================================
+          #
+
+          CONFIG_EXAMPLE_CONNECT_WIFI=y
+
+          CONFIG_EXAMPLE_WIFI_SSID="$WIFI_SSID"
+          CONFIG_EXAMPLE_WIFI_PASSWORD="$WIFI_PASSWORD"
+
+          #
+          # WPA2-PSK
+          #
+          CONFIG_EXAMPLE_WIFI_AUTH_WPA2_PSK=y
+
+          #
+          # =======================================================
           # IPv6
+          # =======================================================
+          #
+
           CONFIG_LWIP_IPV6_FORWARD=y
           CONFIG_LWIP_IPV6_NUM_ADDRESSES=12
+
           CONFIG_LWIP_MULTICAST_PING=y
           CONFIG_LWIP_NETIF_STATUS_CALLBACK=y
+
           CONFIG_LWIP_HOOK_IP6_ROUTE_DEFAULT=y
           CONFIG_LWIP_HOOK_ND6_GET_GW_DEFAULT=y
           CONFIG_LWIP_HOOK_IP6_INPUT_CUSTOM=y
           CONFIG_LWIP_HOOK_IP6_SELECT_SRC_ADDR_CUSTOM=y
 
-          # USB Serial/JTAG console
+          #
+          # =======================================================
+          # OpenThread CLI
+          # =======================================================
+          #
+
+          CONFIG_OPENTHREAD_CLI=y
+          CONFIG_OPENTHREAD_CLI_ESP_EXTENSION=y
+
+          #
+          # =======================================================
+          # USB Serial/JTAG
+          # =======================================================
+          #
+
           CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
           CONFIG_ESP_CONSOLE_SECONDARY_NONE=y
 
-          # CLI
-          CONFIG_OPENTHREAD_CLI=y
-          CONFIG_OPENTHREAD_CLI_ESP_EXTENSION=y
           EOF
 
-      # ---------------------------------------------------------
-      # Check final configuration
-      # ---------------------------------------------------------
+          echo
+          echo "===== sdkconfig.defaults ====="
+          cat sdkconfig.defaults
+
+
+      # =========================================================
+      # Reconfigure
+      # =========================================================
+
       - name: Reconfigure
         working-directory: ${{ env.PROJECT_DIR }}
         run: |
@@ -137,29 +270,97 @@ jobs:
 
           idf.py reconfigure
 
-      - name: Show important configuration
+
+      # =========================================================
+      # Show final configuration
+      # =========================================================
+
+      - name: Show final configuration
         working-directory: ${{ env.PROJECT_DIR }}
         run: |
           set -euxo pipefail
 
-          echo "===== TARGET ====="
+          echo
+          echo "========================================"
+          echo "TARGET"
+          echo "========================================"
+
           grep '^CONFIG_IDF_TARGET' sdkconfig || true
 
+
           echo
-          echo "===== OPENTHREAD RADIO ====="
+          echo "========================================"
+          echo "FLASH"
+          echo "========================================"
+
+          grep '^CONFIG_ESPTOOLPY_FLASHSIZE' sdkconfig || true
+          grep '^CONFIG_ESPTOOLPY_FLASHMODE' sdkconfig || true
+          grep '^CONFIG_ESPTOOLPY_FLASHFREQ' sdkconfig || true
+
+
+          echo
+          echo "========================================"
+          echo "OPENTHREAD"
+          echo "========================================"
+
+          grep '^CONFIG_OPENTHREAD_ENABLED' sdkconfig || true
           grep '^CONFIG_OPENTHREAD_RADIO_' sdkconfig || true
-
-          echo
-          echo "===== BORDER ROUTER ====="
+          grep '^CONFIG_OPENTHREAD_FTD' sdkconfig || true
           grep '^CONFIG_OPENTHREAD_BORDER_ROUTER' sdkconfig || true
+          grep '^CONFIG_OPENTHREAD_NETWORK_AUTO_START' sdkconfig || true
+
 
           echo
-          echo "===== COEX ====="
+          echo "========================================"
+          echo "COEXISTENCE"
+          echo "========================================"
+
           grep '^CONFIG_ESP_COEX_' sdkconfig || true
 
-      # ---------------------------------------------------------
+
+          echo
+          echo "========================================"
+          echo "WI-FI"
+          echo "========================================"
+
+          grep '^CONFIG_EXAMPLE_CONNECT_WIFI' sdkconfig || true
+          grep '^CONFIG_EXAMPLE_WIFI_AUTH' sdkconfig || true
+
+          #
+          # DO NOT print SSID/password.
+          #
+          echo "Wi-Fi credentials: configured through GitHub Secrets"
+
+
+          echo
+          echo "========================================"
+          echo "IPV6"
+          echo "========================================"
+
+          grep '^CONFIG_LWIP_IPV6' sdkconfig || true
+          grep '^CONFIG_LWIP_HOOK_IP6' sdkconfig || true
+
+
+          echo
+          echo "========================================"
+          echo "CONSOLE"
+          echo "========================================"
+
+          grep '^CONFIG_ESP_CONSOLE_' sdkconfig || true
+
+
+          echo
+          echo "========================================"
+          echo "CLI"
+          echo "========================================"
+
+          grep '^CONFIG_OPENTHREAD_CLI' sdkconfig || true
+
+
+      # =========================================================
       # Build
-      # ---------------------------------------------------------
+      # =========================================================
+
       - name: Build firmware
         working-directory: ${{ env.PROJECT_DIR }}
         run: |
@@ -169,60 +370,171 @@ jobs:
 
           idf.py build 2>&1 | tee build.log
 
-      # ---------------------------------------------------------
-      # Merge
-      # ---------------------------------------------------------
-      - name: Merge binaries
+
+      # =========================================================
+      # Show build artifacts
+      # =========================================================
+
+      - name: Show build artifacts
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: |
+          set -euxo pipefail
+
+          echo
+          echo "========================================"
+          echo "BUILD ARTIFACTS"
+          echo "========================================"
+
+          find build \
+            -type f \
+            \( -name '*.bin' -o -name 'flash_args' \) \
+            -exec ls -lh {} \;
+
+
+      # =========================================================
+      # Merge firmware
+      #
+      # IMPORTANT:
+      # Use idf.py merge-bin instead of:
+      #
+      # esptool.py ... @build/flash_args
+      #
+      # This avoids the relative-path problem.
+      # =========================================================
+
+      - name: Merge firmware
         working-directory: ${{ env.PROJECT_DIR }}
         run: |
           set -euxo pipefail
 
           . /opt/esp/idf/export.sh
 
-          esptool.py \
-            --chip esp32c6 \
-            merge_bin \
-            -o build/esp32c6-native-otbr-merged.bin \
-            @build/flash_args
+          idf.py merge-bin \
+            -o esp32c6-native-otbr-merged.bin
 
-      # ---------------------------------------------------------
+          test -f build/esp32c6-native-otbr-merged.bin
+
+          echo
+          echo "Merged firmware:"
+          ls -lh build/esp32c6-native-otbr-merged.bin
+
+
+      # =========================================================
       # Verify
-      # ---------------------------------------------------------
-      - name: Verify binaries
+      # =========================================================
+
+      - name: Verify firmware
         working-directory: ${{ env.PROJECT_DIR }}
         run: |
           set -euxo pipefail
 
-          test -f build/esp_ot_br.bin || \
-            test -f build/ot_br.bin
+          echo
+          echo "========================================"
+          echo "VERIFY"
+          echo "========================================"
 
+          #
+          # Application
+          #
+          if [ -f build/esp_ot_br.bin ]; then
+            echo "Application: build/esp_ot_br.bin"
+          elif [ -f build/ot_br.bin ]; then
+            echo "Application: build/ot_br.bin"
+          else
+            echo "ERROR: OpenThread Border Router application binary not found."
+            exit 1
+          fi
+
+          #
+          # Bootloader
+          #
           test -f build/bootloader/bootloader.bin
+
+          #
+          # Partition table
+          #
           test -f build/partition_table/partition-table.bin
+
+          #
+          # Merged image
+          #
           test -f build/esp32c6-native-otbr-merged.bin
 
           echo
-          echo "===== BINARIES ====="
-          find build -type f -name '*.bin' -exec ls -lh {} \;
+          echo "========================================"
+          echo "BINARIES"
+          echo "========================================"
 
-      # ---------------------------------------------------------
+          find build \
+            -type f \
+            -name '*.bin' \
+            -exec ls -lh {} \;
+
+
+      # =========================================================
+      # Generate checksum
+      # =========================================================
+
+      - name: Generate SHA256
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: |
+          set -euxo pipefail
+
+          cd build
+
+          sha256sum \
+            esp32c6-native-otbr-merged.bin \
+            > esp32c6-native-otbr-merged.bin.sha256
+
+          cat esp32c6-native-otbr-merged.bin.sha256
+
+
+      # =========================================================
       # Upload firmware
-      # ---------------------------------------------------------
+      # =========================================================
+
       - name: Upload firmware
         uses: actions/upload-artifact@v4
         with:
           name: esp32c6-native-otbr
           if-no-files-found: error
           retention-days: 30
+
           path: |
             ot_br/build/esp32c6-native-otbr-merged.bin
-            ot_br/build/*.bin
-            ot_br/build/bootloader/*.bin
-            ot_br/build/partition_table/*.bin
+            ot_br/build/esp32c6-native-otbr-merged.bin.sha256
+
+            ot_br/build/esp_ot_br.bin
+            ot_br/build/ot_br.bin
+
+            ot_br/build/bootloader/bootloader.bin
+            ot_br/build/partition_table/partition-table.bin
+
             ot_br/build/flash_args
 
-      # ---------------------------------------------------------
-      # Upload log even if build fails
-      # ---------------------------------------------------------
+
+      # =========================================================
+      # Upload complete build directory
+      # Useful for debugging
+      # =========================================================
+
+      - name: Upload build information
+        uses: actions/upload-artifact@v4
+        with:
+          name: esp32c6-native-otbr-build-info
+          if-no-files-found: warn
+          retention-days: 14
+
+          path: |
+            ot_br/build.log
+            ot_br/sdkconfig
+            ot_br/sdkconfig.defaults
+
+
+      # =========================================================
+      # Upload build log even if build fails
+      # =========================================================
+
       - name: Upload build log
         if: always()
         uses: actions/upload-artifact@v4
@@ -230,6 +542,8 @@ jobs:
           name: esp32c6-native-otbr-build-log
           if-no-files-found: warn
           retention-days: 14
+
           path: |
             ot_br/build.log
             ot_br/sdkconfig
+            ot_br/sdkconfig.defaults
