@@ -1,0 +1,81 @@
+name: Build ESP32-C6 Thread Border Router
+
+on:
+  workflow_dispatch:
+
+  push:
+    branches:
+      - main
+      - master
+
+  pull_request:
+    branches:
+      - main
+      - master
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: ESP32-C6 Thread Border Router
+    runs-on: ubuntu-24.04
+
+    container:
+      image: espressif/idf:v5.5.4
+
+    defaults:
+      run:
+        shell: bash
+        working-directory: examples/basic_thread_border_router
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      # Repository secrets: Settings -> Secrets and variables -> Actions -> WIFI_SSID, WIFI_PASSWORD.
+      - name: Wi-Fi credentials from secrets
+        env:
+          WIFI_SSID: ${{ secrets.WIFI_SSID }}
+          WIFI_PASSWORD: ${{ secrets.WIFI_PASSWORD }}
+        run: |
+          [ -n "$WIFI_SSID" ] || { echo "::error::Secret WIFI_SSID is not set"; exit 1; }
+          [ -n "$WIFI_PASSWORD" ] || { echo "::error::Secret WIFI_PASSWORD is not set"; exit 1; }
+          # Kconfig strings need \ and " escaped.
+          esc() { printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'; }
+          {
+            echo 'CONFIG_OPENTHREAD_BR_SOFTAP_SETUP=n'
+            echo "CONFIG_EXAMPLE_WIFI_SSID=\"$(esc "$WIFI_SSID")\""
+            echo "CONFIG_EXAMPLE_WIFI_PASSWORD=\"$(esc "$WIFI_PASSWORD")\""
+          } > sdkconfig.local
+
+      # All other configuration lives in sdkconfig.defaults.esp32c6 and partitions_4mb.csv.
+      - name: Build
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          . /opt/esp/idf/export.sh
+          idf.py -D "SDKCONFIG_DEFAULTS=sdkconfig.defaults;sdkconfig.defaults.esp32c6;sdkconfig.local" set-target esp32c6
+          idf.py build
+          idf.py merge-bin -o esp32c6-thread-br-merged.bin
+
+      - name: Verify credentials are built in
+        run: |
+          grep -qx '# CONFIG_OPENTHREAD_BR_SOFTAP_SETUP is not set' sdkconfig
+          [ "$(grep -cxFf <(tail -n 2 sdkconfig.local) sdkconfig)" -eq 2 ]
+
+      # The binaries embed the Wi-Fi password in plain text, so keep the artifact private.
+      - name: Upload firmware
+        uses: actions/upload-artifact@v4
+        with:
+          name: esp32c6-thread-br
+          if-no-files-found: error
+          retention-days: 30
+          path: |
+            examples/basic_thread_border_router/build/esp32c6-thread-br-merged.bin
+            examples/basic_thread_border_router/build/esp_ot_br.bin
+            examples/basic_thread_border_router/build/web_storage.bin
+            examples/basic_thread_border_router/build/bootloader/bootloader.bin
+            examples/basic_thread_border_router/build/partition_table/partition-table.bin
+            examples/basic_thread_border_router/build/flash_args

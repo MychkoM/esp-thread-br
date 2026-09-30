@@ -1,0 +1,32 @@
+# ESP32-C6 single-chip Border Router: Wi-Fi backbone + native 802.15.4 radio, 4 MB flash.
+# Applied automatically by `idf.py set-target esp32c6` on top of sdkconfig.defaults.
+#
+# Wi-Fi is provisioned through the SoftAP web page (http://192.168.4.1), so no credentials are built in.
+# To build in fixed credentials, put them in a git-ignored sdkconfig.local (CI writes it from the
+# WIFI_SSID / WIFI_PASSWORD secrets):
+#   CONFIG_OPENTHREAD_BR_SOFTAP_SETUP=n
+#   CONFIG_EXAMPLE_WIFI_SSID="..."
+#   CONFIG_EXAMPLE_WIFI_PASSWORD="..."
+# and build with:
+#   idf.py -D "SDKCONFIG_DEFAULTS=sdkconfig.defaults;sdkconfig.defaults.esp32c6;sdkconfig.local" set-target esp32c6 build
+
+CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions_4mb.csv"
+CONFIG_PARTITION_TABLE_FILENAME="partitions_4mb.csv"
+
+CONFIG_ESP_BR_BOARD_STANDALONE=y
+CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
+CONFIG_ESP_CONSOLE_SECONDARY_NONE=y
+
+CONFIG_OPENTHREAD_RADIO_NATIVE=y
+CONFIG_OPENTHREAD_FTD=y
+CONFIG_OPENTHREAD_RCP_COMMAND=n
+CONFIG_AUTO_UPDATE_RCP=n
+CONFIG_ESP_COEX_SW_COEXIST_ENABLE=y
+
+CONFIG_OPENTHREAD_BR_AUTO_START=y
+CONFIG_OPENTHREAD_BR_START_WEB=y
+CONFIG_OPENTHREAD_BR_SOFTAP_SETUP=y
+
+CONFIG_EXAMPLE_CONNECT_WIFI=y
+CONFIG_EXAMPLE_CONNECT_ETHERNET=n
