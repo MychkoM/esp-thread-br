@@ -16,7 +16,12 @@
 
 #include "esp_openthread_types.h"
 
-#if CONFIG_OPENTHREAD_RADIO_SPINEL_UART
+#if CONFIG_OPENTHREAD_RADIO_NATIVE
+#define ESP_OPENTHREAD_DEFAULT_RADIO_CONFIG() \
+    {                                         \
+        .radio_mode = RADIO_MODE_NATIVE,      \
+    }
+#elif CONFIG_OPENTHREAD_RADIO_SPINEL_UART
 #define ESP_OPENTHREAD_DEFAULT_RADIO_CONFIG()              \
     {                                                      \
         .radio_mode = RADIO_MODE_UART_RCP,                 \
